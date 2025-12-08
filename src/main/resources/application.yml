@@ -1,0 +1,35 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: pay-peek-backend
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/paypeek
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+# MinIO Configuration
+minio:
+  url: http://localhost:9000
+  access-key: minioadmin
+  secret-key: minioadmin
+  bucket: payslips
+
+# JWT Configuration
+jwt:
+  secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+  expiration: 86400000 # 24 hours
+
+# Tesseract Configuration
+tesseract:
+  datapath: /usr/local/share/tessdata # Placeholder path, adjust as needed
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
