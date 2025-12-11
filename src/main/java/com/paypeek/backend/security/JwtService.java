@@ -1,4 +1,4 @@
-package main.java.com.paypeek.backend.security;
+package com.paypeek.backend.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;

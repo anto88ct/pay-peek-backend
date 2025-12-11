@@ -1,4 +1,4 @@
-package main.java.com.paypeek.backend.controller;
+package com.paypeek.backend.controller;
 
 import com.paypeek.backend.model.Payslip;
 import com.paypeek.backend.repository.PayslipRepository;

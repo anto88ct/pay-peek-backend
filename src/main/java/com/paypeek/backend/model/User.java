@@ -1,4 +1,4 @@
-package main.java.com.paypeek.backend.model;
+package com.paypeek.backend.model;
 
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;

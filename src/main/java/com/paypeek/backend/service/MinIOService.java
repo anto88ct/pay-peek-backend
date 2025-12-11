@@ -1,4 +1,4 @@
-package main.java.com.paypeek.backend.service;
+package com.paypeek.backend.service;
 
 import io.minio.GetObjectArgs;
 import io.minio.MinioClient;

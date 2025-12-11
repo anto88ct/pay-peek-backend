@@ -1,4 +1,4 @@
-package main.java.com.paypeek.backend.controller;
+package com.paypeek.backend.controller;
 
 import com.paypeek.backend.dto.AuthRequest;
 import com.paypeek.backend.dto.AuthResponse;

@@ -1,4 +1,4 @@
-package main.java.com.paypeek.backend.dto;
+package com.paypeek.backend.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

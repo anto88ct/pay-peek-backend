@@ -1,6 +1,6 @@
-package main.java.com.paypeek.backend.repository;
+package com.paypeek.backend.repository;
 
-import main.java.com.paypeek.backend.model.DatiBustaPaga;
+import com.paypeek.backend.model.DatiBustaPaga;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import java.util.List;
 

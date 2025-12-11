@@ -1,7 +1,7 @@
-package main.java.com.paypeek.backend.security;
+package com.paypeek.backend.security;
 
-import main.java.com.paypeek.backend.model.User;
-import main.java.com.paypeek.backend.repository.UserRepository;
+import com.paypeek.backend.model.User;
+import com.paypeek.backend.repository.UserRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
