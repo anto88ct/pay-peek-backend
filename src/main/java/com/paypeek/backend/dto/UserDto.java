@@ -1,21 +1,19 @@
-package com.paypeek.backend.model;
+package com.paypeek.backend.dto;
 
 import com.paypeek.backend.dto.enums.Language;
 import com.paypeek.backend.dto.enums.Role;
 import com.paypeek.backend.dto.enums.Theme;
-import org.springframework.data.mongodb.core.mapping.Document;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 @Builder
-@Document(collection = "users")
-public class User extends BaseEntity {
-
+@AllArgsConstructor
+@NoArgsConstructor
+public class UserDto {
+    private String id;
     private String firstName;
     private String lastName;
     private String job;
@@ -23,9 +21,7 @@ public class User extends BaseEntity {
     private String city;
     private String country;
     private String email;
-    private String passwordHash;
     private Role role;
-    private Language language;
     private Theme theme;
-    private boolean enabled = true;
+    private Language language;
 }
