@@ -5,6 +5,7 @@ import com.paypeek.backend.dto.AuthResponse;
 import com.paypeek.backend.model.User;
 import com.paypeek.backend.repository.UserRepository;
 import com.paypeek.backend.security.JwtService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -26,7 +27,7 @@ public class AuthController {
         private final UserDetailsService userDetailsService;
 
         @PostMapping("/register")
-        public ResponseEntity<AuthResponse> register(@RequestBody AuthRequest request) {
+        public ResponseEntity<AuthResponse> register(@Valid @RequestBody AuthRequest request) {
                 if (userRepository.existsByEmail(request.getEmail())) {
                         return ResponseEntity.badRequest().build(); // Or improved error handling
                 }
@@ -52,7 +53,7 @@ public class AuthController {
         }
 
         @PostMapping("/login")
-        public ResponseEntity<AuthResponse> login(@RequestBody AuthRequest request) {
+        public ResponseEntity<AuthResponse> login(@Valid @RequestBody AuthRequest request) {
                 authenticationManager.authenticate(
                                 new UsernamePasswordAuthenticationToken(
                                                 request.getEmail(),
