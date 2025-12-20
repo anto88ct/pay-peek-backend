@@ -6,6 +6,7 @@ import com.paypeek.backend.dto.SignupDto;
 import com.paypeek.backend.dto.enums.Language;
 import com.paypeek.backend.dto.enums.Role;
 import com.paypeek.backend.dto.enums.Theme;
+import com.paypeek.backend.exception.EmailAlreadyRegisteredException;
 import com.paypeek.backend.mapper.SignupMapper;
 import com.paypeek.backend.model.User;
 import com.paypeek.backend.repository.UserRepository;
@@ -34,7 +35,7 @@ public class AuthService {
     public AuthResponse register(SignupDto request) {
         // 1. Check duplicati
         if (userRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("Email già registrata");
+            throw new EmailAlreadyRegisteredException("Email già registrata");
         }
 
         // 2. Map + Set password + defaults
