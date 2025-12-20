@@ -7,8 +7,7 @@ import com.paypeek.backend.dto.enums.Language;
 import com.paypeek.backend.dto.enums.Role;
 import com.paypeek.backend.dto.enums.Theme;
 import com.paypeek.backend.exception.EmailAlreadyRegisteredException;
-import com.paypeek.backend.mapper.SignupMapper;
-import com.paypeek.backend.model.User;
+import com.paypeek.backend.dto.mapper.SignupMapper;
 import com.paypeek.backend.repository.UserRepository;
 import com.paypeek.backend.security.JwtService;
 import lombok.RequiredArgsConstructor;
@@ -33,7 +32,7 @@ public class AuthService {
     private final SignupMapper signupMapper;
 
     public AuthResponse register(SignupDto request) {
-        // 1. Check duplicati
+
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new EmailAlreadyRegisteredException("Email già registrata");
         }
@@ -47,9 +46,6 @@ public class AuthService {
 
         // 3. Save + LOG
         var savedUser = userRepository.save(user);
-        log.info("👤 Utente creato - ID: {}, Email: {}, Nome: {} {}",
-                savedUser.getId(), savedUser.getEmail(),
-                savedUser.getFirstName(), savedUser.getLastName());
 
         // 4. JWT
         UserDetails userDetails = userDetailsService.loadUserByUsername(savedUser.getEmail());
@@ -71,10 +67,6 @@ public class AuthService {
         UserDetails userDetails = userDetailsService.loadUserByUsername(user.getEmail());
         var jwtToken = jwtService.generateToken(userDetails);
 
-        return AuthResponse.builder()
-                .token(jwtToken)
-                .userId(user.getId())
-                .email(user.getEmail())
-                .build();
+        return signupMapper.toAuthResponse(user, jwtToken);
     }
 }

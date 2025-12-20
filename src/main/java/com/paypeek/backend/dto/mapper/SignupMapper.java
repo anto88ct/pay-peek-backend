@@ -1,4 +1,4 @@
-package com.paypeek.backend.mapper;
+package com.paypeek.backend.dto.mapper;
 
 import com.paypeek.backend.dto.AuthResponse;
 import com.paypeek.backend.dto.SignupDto;
@@ -33,8 +33,7 @@ public class SignupMapper {
 
         return AuthResponse.builder()
                 .token(jwtToken)
-                .userId(user.getId())
-                .email(user.getEmail())
+                .user(toUserDto(user))
                 .build();
     }
 
@@ -43,18 +42,30 @@ public class SignupMapper {
             return null;
         }
 
+        UserDto.Preferences prefs = UserDto.Preferences.builder()
+                .language(user.getLanguage() != null ? user.getLanguage().name().toLowerCase() : "it")
+                .theme(user.getTheme() != null ? user.getTheme().name().toLowerCase() : "system")
+                .emailNotifications(user.isEmailNotifications())
+                .build();
+
         return UserDto.builder()
                 .id(user.getId())
                 .email(user.getEmail())
                 .firstName(user.getFirstName())
                 .lastName(user.getLastName())
-                .job(user.getJob())
+                .jobType(user.getJob())
                 .nationality(user.getNationality())
                 .city(user.getCity())
                 .country(user.getCountry())
-                .role(user.getRole())
-                .theme(user.getTheme())
-                .language(user.getLanguage())
+                .profileImageUrl(user.getProfileImageUrl())
+                .preferences(prefs)
+                .emailVerified(user.isEmailVerified())
+                .twoFactorEnabled(user.isTwoFactorEnabled())
+                .passKeyEnabled(user.isPassKeyEnabled())
+                .biometricEnabled(user.isBiometricEnabled())
+                .lastLogin(user.getLastLogin())
+                .uploadedDocumentsCount(user.getUploadedDocumentsCount())
+                // Role is not in UserDto anymore
                 .build();
     }
 }

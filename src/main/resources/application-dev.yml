@@ -15,4 +15,5 @@ minio:
   secret-key: ${MINIO_SECRET_KEY:minioadmin}
 
 jwt:
-  secret: ${JWT_SECRET:dev-secret-change-me}
+  secret: ${JWT_SECRET:OCnIKaZk5FR/HIB4XR6z6dKGl/sJEy/9DO8HqW4Wi9o=}
+  expiration: 86400000

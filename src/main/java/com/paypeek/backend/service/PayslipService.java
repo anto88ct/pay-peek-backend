@@ -1,7 +1,7 @@
 package com.paypeek.backend.service;
 
 import com.paypeek.backend.dto.PayslipDto;
-import com.paypeek.backend.mapper.PayslipMapper;
+import com.paypeek.backend.dto.mapper.PayslipMapper;
 import com.paypeek.backend.model.Payslip;
 import com.paypeek.backend.model.User;
 import com.paypeek.backend.repository.PayslipRepository;

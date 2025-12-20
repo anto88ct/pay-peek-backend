@@ -1,4 +1,4 @@
-package com.paypeek.backend.mapper;
+package com.paypeek.backend.dto.mapper;
 
 import com.paypeek.backend.dto.PayslipDto;
 import com.paypeek.backend.model.Payslip;

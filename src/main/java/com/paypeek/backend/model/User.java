@@ -27,5 +27,15 @@ public class User extends BaseEntity {
     private Role role;
     private Language language;
     private Theme theme;
+    @lombok.Builder.Default
     private boolean enabled = true;
+    private String profileImageUrl;
+    private boolean emailVerified;
+    private boolean twoFactorEnabled;
+    private boolean passKeyEnabled;
+    private boolean biometricEnabled;
+    private java.util.Date lastLogin;
+    @lombok.Builder.Default
+    private Integer uploadedDocumentsCount = 0;
+    private boolean emailNotifications;
 }
