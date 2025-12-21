@@ -1,12 +1,13 @@
 package com.paypeek.backend.dto;
 
 import com.paypeek.backend.dto.enums.Language;
-import com.paypeek.backend.dto.enums.Role;
 import com.paypeek.backend.dto.enums.Theme;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import java.time.Instant;
 
 @Data
 @Builder
@@ -26,7 +27,7 @@ public class UserDto {
     private boolean twoFactorEnabled;
     private boolean passKeyEnabled;
     private boolean biometricEnabled;
-    private java.util.Date lastLogin;
+    private Instant lastLogin;
 
     // UserDto extensions
     private String password;
@@ -40,8 +41,9 @@ public class UserDto {
     @AllArgsConstructor
     @NoArgsConstructor
     public static class Preferences {
-        private String language;
-        private String theme;
+        private Language language;
+        private Theme theme;
+        private Boolean biometric;
         private boolean emailNotifications;
     }
 }

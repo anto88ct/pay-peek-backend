@@ -73,10 +73,12 @@ public class SecurityConfig {
             .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                     .requestMatchers("/api/auth/**").permitAll()
+                    .requestMatchers("/api/users/**").permitAll()
                     .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                     .anyRequest().authenticated()
             )
-            .exceptionHandling(ex -> ex
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .exceptionHandling(ex -> ex
                 // 401 – utente NON autenticato (token mancante/invalid)
                 .authenticationEntryPoint((request, response, authException) -> {
                     response.setStatus(HttpStatus.UNAUTHORIZED.value());

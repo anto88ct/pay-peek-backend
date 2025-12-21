@@ -9,6 +9,8 @@ import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 
+import java.time.Instant;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -34,7 +36,7 @@ public class User extends BaseEntity {
     private boolean twoFactorEnabled;
     private boolean passKeyEnabled;
     private boolean biometricEnabled;
-    private java.util.Date lastLogin;
+    private Instant lastLogin;
     @lombok.Builder.Default
     private Integer uploadedDocumentsCount = 0;
     private boolean emailNotifications;

@@ -42,7 +42,7 @@ public class AuthService {
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         user.setRole(Role.USER);
         user.setTheme(Theme.LIGHT);
-        user.setLanguage(Language.ITALIAN);
+        user.setLanguage(Language.IT);
 
         // 3. Save + LOG
         var savedUser = userRepository.save(user);

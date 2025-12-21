@@ -3,6 +3,8 @@ package com.paypeek.backend.dto.mapper;
 import com.paypeek.backend.dto.AuthResponse;
 import com.paypeek.backend.dto.SignupDto;
 import com.paypeek.backend.dto.UserDto;
+import com.paypeek.backend.dto.enums.Language;
+import com.paypeek.backend.dto.enums.Theme;
 import com.paypeek.backend.model.User;
 import org.springframework.stereotype.Component;
 
@@ -43,8 +45,9 @@ public class SignupMapper {
         }
 
         UserDto.Preferences prefs = UserDto.Preferences.builder()
-                .language(user.getLanguage() != null ? user.getLanguage().name().toLowerCase() : "it")
-                .theme(user.getTheme() != null ? user.getTheme().name().toLowerCase() : "system")
+                .language(user.getLanguage() != null ? user.getLanguage() : Language.IT)
+                .theme(user.getTheme() != null ? user.getTheme() : Theme.SYSTEM)
+                .biometric(user.isBiometricEnabled())
                 .emailNotifications(user.isEmailNotifications())
                 .build();
 
@@ -65,7 +68,6 @@ public class SignupMapper {
                 .biometricEnabled(user.isBiometricEnabled())
                 .lastLogin(user.getLastLogin())
                 .uploadedDocumentsCount(user.getUploadedDocumentsCount())
-                // Role is not in UserDto anymore
                 .build();
     }
 }
