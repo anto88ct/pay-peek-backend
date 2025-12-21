@@ -5,6 +5,7 @@ import com.paypeek.backend.dto.UserDto;
 import com.paypeek.backend.dto.ProfileUpdateDto;
 import com.paypeek.backend.dto.PasswordResetDto;
 import com.paypeek.backend.dto.mapper.UserMapper;
+import com.paypeek.backend.exception.ResourceNotFoundException;
 import com.paypeek.backend.model.User;
 import com.paypeek.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -29,11 +30,23 @@ public class UserService {
     /**
      * Get user profile by email
      */
-    public UserDto getUserProfile(String email) {
-        log.info("Fetching user profile for email: {}", email);
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("User not found: " + email));
-        return userMapper.toDto(user);
+    public UserDto getProfile(String userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+
+        UserDto userDto = userMapper.toDto(user);
+
+        if (user.getProfileImageUrl() != null && !user.getProfileImageUrl().isEmpty()) {
+            try {
+                String objectName = minIOService.extractObjectName(user.getProfileImageUrl());
+                String freshPresignedUrl = minIOService.generatePresignedUrl(objectName);
+                userDto.setProfileImageUrl(freshPresignedUrl);
+            } catch (Exception e) {
+                log.warn("Could not regenerate URL", e);
+            }
+        }
+
+        return userDto;
     }
 
     /**
@@ -128,24 +141,33 @@ public class UserService {
     /**
      * Upload profile image from MultipartFile
      */
-    public UserDto uploadProfileImage(String email, MultipartFile file) {
-        log.info("Uploading profile image for user: {}", email);
+    public UserDto uploadProfileImage(String userId, MultipartFile file) {
+        log.info("Uploading profile image for user: {}", userId);
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("User not found: " + email));
+        if (file.isEmpty() || file.getContentType() == null) {
+            throw new IllegalArgumentException("File non valido");
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
 
         try {
-            // Upload to MinIO
+            // Upload a MinIO
             String imageUrl = minIOService.uploadFile(file, "users/" + user.getId() + "/profile");
+
+            if (user.getProfileImageUrl() != null && !user.getProfileImageUrl().isEmpty()) {
+                minIOService.deleteFile(user.getProfileImageUrl());
+            }
+
             user.setProfileImageUrl(imageUrl);
             user.setUpdatedAt(Instant.now());
 
             User savedUser = userRepository.save(user);
-            log.info("Profile image uploaded successfully for user: {}", email);
+            log.info("Profile image uploaded successfully for user: {}", userId);
 
             return userMapper.toDto(savedUser);
         } catch (Exception e) {
-            log.error("Error uploading profile image for user: {}", email, e);
+            log.error("Error uploading profile image for user: {}", userId, e);
             throw new RuntimeException("Failed to upload profile image: " + e.getMessage());
         }
     }

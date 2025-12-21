@@ -3,6 +3,7 @@ package com.paypeek.backend.controller;
 import com.paypeek.backend.dto.PasswordResetDto;
 import com.paypeek.backend.dto.ProfileUpdateDto;
 import com.paypeek.backend.dto.UserDto;
+import com.paypeek.backend.exception.ResourceNotFoundException;
 import com.paypeek.backend.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -19,17 +20,18 @@ public class UserController {
     private final UserService userService;
 
 
-    @GetMapping("/profile")
-    public ResponseEntity<UserDto> getProfile(Authentication authentication) {
+    @GetMapping("/profile/{userId}")
+    public ResponseEntity<UserDto> getProfile(@PathVariable String userId) {
         try {
-            UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-            UserDto user = userService.getUserProfile(userDetails.getUsername());
+            UserDto user = userService.getProfile(userId);
             return ResponseEntity.ok(user);
+        } catch (ResourceNotFoundException e) {
+            return ResponseEntity.notFound().build();
         } catch (Exception e) {
-            e.printStackTrace();
             return ResponseEntity.internalServerError().build();
         }
     }
+
 
 
     @PutMapping("/update/profile")
@@ -46,27 +48,9 @@ public class UserController {
     @PostMapping("/profile/image")
     public ResponseEntity<UserDto> uploadProfileImage(
             @RequestParam("file") MultipartFile file,
-            Authentication authentication) {
-        try {
-            UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-            UserDto updatedUser = userService.uploadProfileImage(userDetails.getUsername(), file);
-            return ResponseEntity.ok(updatedUser);
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.internalServerError().build();
-        }
-    }
-
-    @DeleteMapping("/profile/image")
-    public ResponseEntity<UserDto> removeProfileImage(Authentication authentication) {
-        try {
-            UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-            UserDto updatedUser = userService.removeProfileImage(userDetails.getUsername());
-            return ResponseEntity.ok(updatedUser);
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.internalServerError().build();
-        }
+            @RequestParam("userId") String userId) {
+        UserDto updatedUser = userService.uploadProfileImage(userId, file);
+        return ResponseEntity.ok(updatedUser);
     }
 
     @GetMapping("/{userId}")
