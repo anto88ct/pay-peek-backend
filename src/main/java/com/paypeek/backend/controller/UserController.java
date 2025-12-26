@@ -3,6 +3,8 @@ package com.paypeek.backend.controller;
 import com.paypeek.backend.dto.PasswordResetDto;
 import com.paypeek.backend.dto.ProfileUpdateDto;
 import com.paypeek.backend.dto.UserDto;
+import com.paypeek.backend.dto.enums.Language;
+import com.paypeek.backend.dto.enums.Theme;
 import com.paypeek.backend.exception.ResourceNotFoundException;
 import com.paypeek.backend.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -86,6 +88,32 @@ public class UserController {
             UserDetails userDetails = (UserDetails) authentication.getPrincipal();
             userService.resetPassword(userDetails.getUsername(), passwordResetDto);
             return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @PatchMapping("/preferences/{userId}/language")
+    public ResponseEntity<UserDto> updateLanguage(
+            @RequestParam Language language,
+            @PathVariable String userId) {
+        try {
+            UserDto updatedUser = userService.updateLanguage(userId, language);
+            return ResponseEntity.ok(updatedUser);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @PatchMapping("/preferences/{userId}/theme")
+    public ResponseEntity<UserDto> updateTheme(
+            @RequestParam Theme theme,
+            @PathVariable String userId) {
+        try {
+            UserDto updatedUser = userService.updateTheme(userId, theme);
+            return ResponseEntity.ok(updatedUser);
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.internalServerError().build();

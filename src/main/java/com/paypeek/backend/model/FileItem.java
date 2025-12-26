@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.util.Date;
 
 @Data
@@ -17,5 +18,5 @@ public class FileItem {
     private String url;
     private String type; // "pdf"
     private Long size;
-    private Date uploadDate;
+    private Instant uploadDate;
 }

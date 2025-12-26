@@ -4,6 +4,8 @@ package com.paypeek.backend.service;
 import com.paypeek.backend.dto.UserDto;
 import com.paypeek.backend.dto.ProfileUpdateDto;
 import com.paypeek.backend.dto.PasswordResetDto;
+import com.paypeek.backend.dto.enums.Language;
+import com.paypeek.backend.dto.enums.Theme;
 import com.paypeek.backend.dto.mapper.UserMapper;
 import com.paypeek.backend.exception.ResourceNotFoundException;
 import com.paypeek.backend.model.User;
@@ -288,6 +290,23 @@ public class UserService {
             log.error("Error saving profile image from base64 for user: {}", userId, e);
             throw new RuntimeException("Failed to save profile image: " + e.getMessage());
         }
+    }
+    public UserDto updateLanguage(String userId, Language language) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+
+        user.setLanguage(language);
+        User updatedUser = userRepository.save(user);
+        return userMapper.toDto(updatedUser);
+    }
+
+    public UserDto updateTheme(String userId, Theme theme) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+
+        user.setTheme(theme);
+        User updatedUser = userRepository.save(user);
+        return userMapper.toDto(updatedUser);
     }
 
     /**

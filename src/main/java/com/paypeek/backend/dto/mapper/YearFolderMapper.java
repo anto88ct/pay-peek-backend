@@ -16,8 +16,6 @@ import java.util.stream.Collectors;
 @Component
 public class YearFolderMapper {
 
-    private static final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
-
     public YearFolderDto toDto(YearFolder entity) {
         if (entity == null)
             return null;
@@ -64,7 +62,7 @@ public class YearFolderMapper {
                 .url(entity.getUrl())
                 .type(entity.getType())
                 .size(entity.getSize())
-                .uploadDate(entity.getUploadDate() != null ? dateFormat.format(entity.getUploadDate()) : null)
+                .uploadDate(entity.getUploadDate())
                 .build();
     }
 }

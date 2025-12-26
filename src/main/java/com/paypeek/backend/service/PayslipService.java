@@ -1,8 +1,6 @@
 package com.paypeek.backend.service;
 
 import com.paypeek.backend.dto.FileItemDto;
-import com.paypeek.backend.dto.MonthFolderDto;
-import com.paypeek.backend.dto.YearFolderDto;
 import com.paypeek.backend.dto.mapper.YearFolderMapper;
 import com.paypeek.backend.model.FileItem;
 import com.paypeek.backend.model.MonthFolder;
@@ -12,21 +10,31 @@ import com.paypeek.backend.repository.UserRepository;
 import com.paypeek.backend.repository.YearFolderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.Authentication;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.Month;
-import java.time.ZoneId;
 import java.time.format.TextStyle;
 import java.util.*;
-import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class PayslipService {
 
@@ -34,180 +42,226 @@ public class PayslipService {
     private final YearFolderRepository yearFolderRepository;
     private final UserRepository userRepository;
     private final YearFolderMapper yearFolderMapper;
+    private final RestTemplate restTemplate;
+    private final PayslipService self;
 
-    // Helper to get current User
-    private User getCurrentUser() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated()) {
-            throw new RuntimeException("User not authenticated");
-        }
-        String email = authentication.getName();
-        return userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("User not found: " + email));
+    @Value("${app.extractor.url:http://paypeek-extractor:8000}")
+    private String extractorUrl;
+
+    @Value("${app.lightrag.url:http://paypeek-lightrag:8020}")
+    private String lightragUrl;
+
+    public PayslipService(MinIOService minIOService,
+                          YearFolderRepository yearFolderRepository,
+                          UserRepository userRepository,
+                          YearFolderMapper yearFolderMapper,
+                          @Lazy PayslipService self) {
+        this.minIOService = minIOService;
+        this.yearFolderRepository = yearFolderRepository;
+        this.userRepository = userRepository;
+        this.yearFolderMapper = yearFolderMapper;
+        this.restTemplate = new RestTemplate();
+        this.self = self;
     }
 
-    public List<YearFolderDto> getAllFiles() {
-        User user = getCurrentUser();
-        List<YearFolder> folders = yearFolderRepository.findByUserIdOrderByYearDesc(user.getId());
-        return folders.stream()
-                .map(yearFolderMapper::toDto)
-                .collect(Collectors.toList());
-    }
-
-    public YearFolderDto createYear(int year) {
-        User user = getCurrentUser();
-
-        Optional<YearFolder> existing = yearFolderRepository.findByUserIdAndYear(user.getId(), year);
-        if (existing.isPresent()) {
-            throw new RuntimeException("Year folder already exists for year: " + year);
-        }
-
-        YearFolder yearFolder = YearFolder.builder()
-                .userId(user.getId())
-                .year(year)
-                .color(getRandomColor())
-                .months(new ArrayList<>())
-                .build();
-
-        yearFolder = yearFolderRepository.save(yearFolder);
-        return yearFolderMapper.toDto(yearFolder);
-    }
-
-    public MonthFolderDto createMonth(String yearId, int month) {
-        User user = getCurrentUser();
-
-        YearFolder yearFolder = yearFolderRepository.findById(yearId)
-                .orElseThrow(() -> new RuntimeException("Year folder not found"));
-
-        if (!yearFolder.getUserId().equals(user.getId())) {
-            throw new RuntimeException("Unauthorized access to year folder");
-        }
-
-        boolean monthExists = yearFolder.getMonths().stream().anyMatch(m -> m.getMonth() == month);
-        if (monthExists) {
-            throw new RuntimeException("Month " + month + " already exists in year " + yearFolder.getYear());
-        }
-
-        MonthFolder monthFolder = MonthFolder.builder()
-                .id(UUID.randomUUID().toString())
-                .month(month)
-                .name(Month.of(month).getDisplayName(TextStyle.FULL, Locale.ENGLISH))
-                .files(new ArrayList<>())
-                .build();
-
-        yearFolder.getMonths().add(monthFolder);
-        yearFolder.getMonths().sort(Comparator.comparingInt(MonthFolder::getMonth).reversed());
-
-        yearFolderRepository.save(yearFolder);
-
-        return yearFolderMapper.toDto(monthFolder);
-    }
-
+    /**
+     * UPLOAD SINGOLO: Carica in una cartella specifica (ID mese fornito dal FE)
+     */
     public FileItemDto uploadFile(String monthFolderId, MultipartFile file) {
         User user = getCurrentUser();
 
-        // Find YearFolder containing the month
-        YearFolder yearFolder = yearFolderRepository.findByMonthId(monthFolderId)
-                .orElseThrow(() -> new RuntimeException("Folder not found"));
+        // 1. Estrazione testo per LightRAG
+        String markdown = extractMarkdown(file);
 
-        if (!yearFolder.getUserId().equals(user.getId())) {
-            throw new RuntimeException("Unauthorized access to folder");
-        }
+        // 2. Upload su MinIO
+        String minioFilename = uploadToMinio(file);
+
+        // 3. Ricerca della cartella di destinazione su MongoDB
+        YearFolder yearFolder = yearFolderRepository.findAll().stream()
+                .filter(yf -> yf.getUserId().equals(user.getId()))
+                .filter(yf -> yf.getMonths().stream().anyMatch(m -> m.getId().equals(monthFolderId)))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Cartella Anno non trovata per il mese: " + monthFolderId));
 
         MonthFolder monthFolder = yearFolder.getMonths().stream()
                 .filter(m -> m.getId().equals(monthFolderId))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("Month folder not found in year folder"));
+                .findFirst().orElseThrow();
 
-        // Upload to MinIO
-        String filename = UUID.randomUUID().toString() + "_" + file.getOriginalFilename();
-        try {
-            minIOService.uploadPayslip(file.getInputStream(), filename, file.getContentType());
-        } catch (IOException e) {
-            throw new RuntimeException("Error uploading to MinIO", e);
-        }
-
-        FileItem fileItem = FileItem.builder()
-                .id(UUID.randomUUID().toString())
-                .name(file.getOriginalFilename())
-                .url(filename)
-                .type("pdf") // Assuming PDF
-                .size(file.getSize())
-                .uploadDate(new Date())
-                .build();
-
+        // 4. Creazione FileItem
+        FileItem fileItem = buildFileItem(file, minioFilename);
         monthFolder.getFiles().add(fileItem);
         yearFolderRepository.save(yearFolder);
+
+        // 5. Pipeline AI asincrona
+        if (markdown != null) {
+            self.sendToLightRagAsync(file.getOriginalFilename(), markdown);
+        }
 
         return yearFolderMapper.toDto(fileItem);
     }
 
+    /**
+     * MASS UPLOAD: Rileva automaticamente Anno/Mese dal contenuto del PDF
+     */
     public List<FileItemDto> massUpload(List<MultipartFile> files) {
         User user = getCurrentUser();
-        List<FileItemDto> uploadedFiles = new ArrayList<>();
-
-        LocalDate today = LocalDate.now();
+        List<FileItemDto> results = new ArrayList<>();
 
         for (MultipartFile file : files) {
-            int year = today.getYear();
-            int month = today.getMonthValue();
-
-            // Ensure Year Exists
-            YearFolder yearFolder = yearFolderRepository.findByUserIdAndYear(user.getId(), year)
-                    .orElseGet(() -> {
-                        YearFolder newYear = YearFolder.builder()
-                                .userId(user.getId())
-                                .year(year)
-                                .color(getRandomColor())
-                                .months(new ArrayList<>())
-                                .build();
-                        return yearFolderRepository.save(newYear);
-                    });
-
-            // Ensure Month Exists
-            MonthFolder monthFolder = yearFolder.getMonths().stream()
-                    .filter(m -> m.getMonth() == month)
-                    .findFirst()
-                    .orElseGet(() -> {
-                        MonthFolder newMonth = MonthFolder.builder()
-                                .id(UUID.randomUUID().toString())
-                                .month(month)
-                                .name(Month.of(month).getDisplayName(TextStyle.FULL, Locale.ENGLISH))
-                                .files(new ArrayList<>())
-                                .build();
-                        yearFolder.getMonths().add(newMonth);
-                        return newMonth;
-                    });
-
-            // Upload
-            String filename = UUID.randomUUID().toString() + "_" + file.getOriginalFilename();
             try {
-                minIOService.uploadPayslip(file.getInputStream(), filename, file.getContentType());
-            } catch (IOException e) {
-                log.error("Failed to upload file " + file.getOriginalFilename(), e);
-                continue; // Skip this file
+                // 1. Estrazione Markdown (Sincrona per poter analizzare il periodo)
+                String markdown = extractMarkdown(file);
+
+                // 2. Analisi AI del periodo (Anno e Mese)
+                Map<String, Integer> period = detectPeriod(markdown, file.getOriginalFilename());
+                int year = period.get("year");
+                int month = period.get("month");
+
+                // 3. Upload fisico su MinIO
+                String minioFilename = uploadToMinio(file);
+
+                // 4. Organizzazione cartelle dinamica
+                YearFolder yearFolder = getOrCreateYearFolder(user.getId(), year);
+                MonthFolder monthFolder = getOrCreateMonthFolder(yearFolder, month);
+
+                // 5. Salvataggio metadati
+                FileItem fileItem = buildFileItem(file, minioFilename);
+                monthFolder.getFiles().add(fileItem);
+                yearFolderRepository.save(yearFolder);
+
+                // 6. Indicizzazione AI asincrona
+                if (markdown != null) {
+                    self.sendToLightRagAsync(file.getOriginalFilename(), markdown);
+                }
+
+                results.add(yearFolderMapper.toDto(fileItem));
+                log.info("File {} elaborato correttamente per il periodo {}/{}", file.getOriginalFilename(), month, year);
+
+            } catch (Exception e) {
+                log.error("Errore durante l'elaborazione di {}: {}", file.getOriginalFilename(), e.getMessage());
             }
+        }
+        return results;
+    }
 
-            FileItem fileItem = FileItem.builder()
-                    .id(UUID.randomUUID().toString())
-                    .name(file.getOriginalFilename())
-                    .url(filename)
-                    .type("pdf")
-                    .size(file.getSize())
-                    .uploadDate(new Date())
-                    .build();
+    // --- AI PIPELINE HELPERS ---
 
-            monthFolder.getFiles().add(fileItem);
-            uploadedFiles.add(yearFolderMapper.toDto(fileItem));
+    private String extractMarkdown(MultipartFile file) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
-            yearFolderRepository.save(yearFolder);
+            MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+            body.add("file", new ByteArrayResource(file.getBytes()) {
+                @Override public String getFilename() { return file.getOriginalFilename(); }
+            });
+
+            HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
+            ResponseEntity<Map> response = restTemplate.postForEntity(extractorUrl + "/extract", requestEntity, Map.class);
+
+            return (String) Objects.requireNonNull(response.getBody()).get("markdown");
+        } catch (Exception e) {
+            log.error("Estrazione Fallita: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Analizza il testo per estrarre Anno e Mese.
+     * Implementa una logica basata su Regex che cerca pattern tipici delle buste paga italiane.
+     */
+    private Map<String, Integer> detectPeriod(String markdown, String filename) {
+        int year = LocalDate.now().getYear();
+        int month = LocalDate.now().getMonthValue();
+
+        if (markdown == null) return Map.of("year", year, "month", month);
+
+        // Regex per Anno (cerca 2020-2029)
+        Pattern yearPattern = Pattern.compile("202[0-9]");
+        Matcher yearMatcher = yearPattern.matcher(markdown);
+        if (yearMatcher.find()) {
+            year = Integer.parseInt(yearMatcher.group());
         }
 
-        return uploadedFiles;
+        // Regex per Mese (nomi italiani o numeri 01-12)
+        String[] monthsIt = {"gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+                "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"};
+
+        String lowerMarkdown = markdown.toLowerCase();
+        for (int i = 0; i < monthsIt.length; i++) {
+            if (lowerMarkdown.contains(monthsIt[i])) {
+                month = i + 1;
+                break;
+            }
+        }
+
+        return Map.of("year", year, "month", month);
+    }
+
+    @Async
+    public void sendToLightRagAsync(String title, String content) {
+        try {
+            Map<String, String> payload = Map.of("title", title, "content", content);
+            restTemplate.postForEntity(lightragUrl + "/insert", payload, String.class);
+            log.info("LightRAG: {} indicizzato con successo", title);
+        } catch (Exception e) {
+            log.error("LightRAG Error: {}", e.getMessage());
+        }
+    }
+
+    // --- REPOSITORY & STORAGE HELPERS ---
+
+    private String uploadToMinio(MultipartFile file) {
+        String filename = UUID.randomUUID() + "_" + file.getOriginalFilename();
+        try {
+            minIOService.uploadPayslip(file.getInputStream(), filename, file.getContentType());
+            return filename;
+        } catch (IOException e) {
+            throw new RuntimeException("Errore upload MinIO");
+        }
+    }
+
+    private YearFolder getOrCreateYearFolder(String userId, int year) {
+        return yearFolderRepository.findByUserIdAndYear(userId, year)
+                .orElseGet(() -> yearFolderRepository.save(YearFolder.builder()
+                        .userId(userId).year(year).color(getRandomColor()).months(new ArrayList<>()).build()));
+    }
+
+    private MonthFolder getOrCreateMonthFolder(YearFolder yearFolder, int month) {
+        return yearFolder.getMonths().stream()
+                .filter(m -> m.getMonth() == month)
+                .findFirst()
+                .orElseGet(() -> {
+                    MonthFolder nf = MonthFolder.builder()
+                            .id(UUID.randomUUID().toString())
+                            .month(month)
+                            .name(Month.of(month).getDisplayName(TextStyle.FULL, Locale.ITALIAN))
+                            .files(new ArrayList<>())
+                            .build();
+                    yearFolder.getMonths().add(nf);
+                    yearFolder.getMonths().sort(Comparator.comparingInt(MonthFolder::getMonth).reversed());
+                    return nf;
+                });
+    }
+
+    private FileItem buildFileItem(MultipartFile file, String url) {
+        return FileItem.builder()
+                .id(UUID.randomUUID().toString())
+                .name(file.getOriginalFilename())
+                .url(url)
+                .type("pdf")
+                .size(file.getSize())
+                .uploadDate(Instant.now())
+                .build();
+    }
+
+    private User getCurrentUser() {
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        return userRepository.findByEmail(email).orElseThrow();
     }
 
     private String getRandomColor() {
-        String[] colors = { "#FF5733", "#33FF57", "#3357FF", "#F1C40F", "#9B59B6", "#E67E22" };
+        String[] colors = {"#FF5733", "#33FF57", "#3357FF", "#F1C40F", "#9B59B6", "#E67E22"};
         return colors[new Random().nextInt(colors.length)];
     }
 }

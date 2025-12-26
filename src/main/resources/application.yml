@@ -1,4 +1,14 @@
+# External Services Configuration
+app:
+  extractor:
+    url: ${EXTRACTOR_URL:http://paypeek-extractor:8000}
+  lightrag:
+    url: ${LIGHTRAG_URL:http://paypeek-lightrag:8020}
+
 spring:
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://paypeek-mongodb:27017/paypeek}
   application:
     name: pay-peek-backend
   banner:
