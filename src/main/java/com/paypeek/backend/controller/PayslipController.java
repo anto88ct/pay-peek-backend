@@ -1,40 +1,54 @@
 package com.paypeek.backend.controller;
 
-import com.paypeek.backend.dto.PayslipDto;
+import com.paypeek.backend.dto.FileItemDto;
+import com.paypeek.backend.dto.MonthFolderDto;
+import com.paypeek.backend.dto.YearFolderDto;
 import com.paypeek.backend.service.PayslipService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/payslips")
+@RequestMapping("/api/files")
 @RequiredArgsConstructor
 public class PayslipController {
 
     private final PayslipService payslipService;
 
-    @PostMapping("/upload")
-    public ResponseEntity<PayslipDto> uploadPayslip(
-            @RequestParam("file") MultipartFile file,
-            Authentication authentication) {
-        try {
-            UserDetails userDetails = (UserDetails) authentication.getPrincipal(); // Get current user
-            PayslipDto payslip = payslipService.uploadPayslip(file, userDetails.getUsername());
-            return ResponseEntity.ok(payslip);
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.internalServerError().build();
-        }
+    @GetMapping
+    public ResponseEntity<List<YearFolderDto>> getAllFiles() {
+        return ResponseEntity.ok(payslipService.getAllFiles());
     }
 
-    @GetMapping
-    public ResponseEntity<List<PayslipDto>> getUserPayslips(Authentication authentication) {
-        UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-        return ResponseEntity.ok(payslipService.getUserPayslips(userDetails.getUsername()));
+    @PostMapping("/years")
+    public ResponseEntity<YearFolderDto> createYear(
+            @RequestParam int year) {
+        return ResponseEntity.ok(payslipService.createYear(year));
+    }
+
+    @PostMapping("/years/{yearId}/months")
+    public ResponseEntity<MonthFolderDto> createMonth(
+            @PathVariable String yearId,
+            @RequestParam int month) {
+        return ResponseEntity.ok(payslipService.createMonth(yearId, month));
+    }
+
+    @PostMapping("/folders/{folderId}/upload")
+    public ResponseEntity<FileItemDto> uploadFile(
+            @PathVariable String folderId,
+            @RequestParam("file") MultipartFile file) {
+        if (!file.getContentType().equals("application/pdf")) {
+            // Optional: return bad request loop
+        }
+        return ResponseEntity.ok(payslipService.uploadFile(folderId, file));
+    }
+
+    @PostMapping("/payslips/upload")
+    public ResponseEntity<List<FileItemDto>> massUpload(
+            @RequestParam("files") List<MultipartFile> files) {
+        return ResponseEntity.ok(payslipService.massUpload(files));
     }
 }

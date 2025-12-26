@@ -107,6 +107,48 @@ services:
       retries: 3
       start_period: 10s
 
+  # ===============================
+  # Extractor - PDF to Markdown (Python)
+  # ===============================
+  extractor:
+    build:
+      context: ../pdf-extractor
+      dockerfile: Dockerfile
+    container_name: paypeek-extractor
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    networks:
+      - paypeek-network
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - minio
+
+
+  # ===============================
+  # LightRAG - AI Engine (API wrapper)
+  # ===============================
+  # ===============================
+  lightrag:
+    build:
+      context: ../lightrag-service
+      dockerfile: Dockerfile
+    container_name: paypeek-lightrag
+    restart: unless-stopped
+    ports:
+      - "8020:8020"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    volumes:
+      - ./lightrag_data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - paypeek-network
+    depends_on:
+      - mongodb
+
 # ===============================
 # Networks
 # ===============================

@@ -5,16 +5,15 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.Date;
-
 @Data
 @Builder
-@AllArgsConstructor
 @NoArgsConstructor
-public class PayslipDto {
+@AllArgsConstructor
+public class FileItemDto {
     private String id;
-    private String userId;
-    private Date uploadDate;
-    private String fileUrl;
-    private String processingStatus;
+    private String name;
+    private String url;
+    private String type; // 'pdf'
+    private Long size;
+    private String uploadDate;
 }

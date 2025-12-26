@@ -5,17 +5,17 @@ FROM gradle:8.5-jdk17 AS build
 
 WORKDIR /app
 
-# Copy Gradle files first for better caching
+# Copia i file Gradle per sfruttare la cache delle dipendenze
 COPY build.gradle settings.gradle ./
 COPY gradle ./gradle
 
-# Download dependencies (cached layer)
+# Scarica le dipendenze
 RUN gradle dependencies --no-daemon || true
 
-# Copy source code
+# Copia il codice sorgente
 COPY src ./src
 
-# Build the application
+# Build del JAR (escludendo i test per velocità)
 RUN gradle bootJar --no-daemon -x test
 
 # ===============================
@@ -23,30 +23,27 @@ RUN gradle bootJar --no-daemon -x test
 # ===============================
 FROM eclipse-temurin:17-jdk-jammy
 
-# Install Tesseract OCR with Italian and English language packs
+# Installiamo solo curl, necessario per il Healthcheck di Docker
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    tesseract-ocr \
-    tesseract-ocr-ita \
-    tesseract-ocr-eng \
-    && rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy the built JAR from build stage
+# Copia il JAR generato nello stage precedente
 COPY --from=build /app/build/libs/*.jar app.jar
 
-# Create non-root user for security
+# Creazione utente non-root per sicurezza
 RUN useradd -r -u 1001 appuser && \
     chown -R appuser:appuser /app
 USER appuser
 
-# Expose port
+# Espone la porta del backend
 EXPOSE 8080
 
-# Health check
+# Health check (Ora funzionerà perché abbiamo installato curl sopra)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8080/actuator/health || exit 1
 
-# Run the application
+# Avvio dell'applicazione
 ENTRYPOINT ["java", "-jar", "app.jar"]
