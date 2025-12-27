@@ -1,5 +1,6 @@
 # External Services Configuration
 app:
+  frontend-url: ${FRONTEND_URL:http://localhost:4200}
   extractor:
     url: ${EXTRACTOR_URL:http://paypeek-extractor:8000}
   lightrag:
@@ -14,6 +15,19 @@ spring:
   banner:
     location: classpath:banner.txt
     charset: UTF-8
+
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME:antonio.darrigoct@gmail.com}
+    password: ${MAIL_PASSWORD:uyry iply nzsd ndra}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
 
   servlet:
     multipart:

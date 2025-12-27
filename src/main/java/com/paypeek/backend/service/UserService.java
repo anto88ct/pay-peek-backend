@@ -10,14 +10,18 @@ import com.paypeek.backend.dto.mapper.UserMapper;
 import com.paypeek.backend.exception.ResourceNotFoundException;
 import com.paypeek.backend.model.User;
 import com.paypeek.backend.repository.UserRepository;
+import com.paypeek.backend.security.EmailService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Base64;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -28,10 +32,12 @@ public class UserService {
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
     private final MinIOService minIOService;
+    private final EmailService emailService;
 
-    /**
-     * Get user profile by email
-     */
+    @Value("${app.frontend-url}")
+    private String frontendUrl;
+
+
     public UserDto getProfile(String userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
@@ -51,21 +57,13 @@ public class UserService {
         return userDto;
     }
 
-    /**
-     * Get user by ID
-     */
     public UserDto getUserById(String userId) {
-        log.info("Fetching user by ID: {}", userId);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found: " + userId));
         return userMapper.toDto(user);
     }
 
-    /**
-     * Update user profile
-     */
     public UserDto updateUserProfile(String userId, ProfileUpdateDto profileUpdateDto) {
-        log.info("Updating profile for userId: {}", userId);
 
         //ricaviamo l'utente corrente
         User user = userRepository.findById(userId)
@@ -134,7 +132,6 @@ public class UserService {
 
         user.setUpdatedAt(Instant.now());
         User savedUser = userRepository.save(user);
-        log.info("Profile updated successfully for userId: {}", userId);
 
         return userMapper.toDto(savedUser);
     }
@@ -144,7 +141,6 @@ public class UserService {
      * Upload profile image from MultipartFile
      */
     public UserDto uploadProfileImage(String userId, MultipartFile file) {
-        log.info("Uploading profile image for user: {}", userId);
 
         if (file.isEmpty() || file.getContentType() == null) {
             throw new IllegalArgumentException("File non valido");
@@ -165,11 +161,9 @@ public class UserService {
             user.setUpdatedAt(Instant.now());
 
             User savedUser = userRepository.save(user);
-            log.info("Profile image uploaded successfully for user: {}", userId);
 
             return userMapper.toDto(savedUser);
         } catch (Exception e) {
-            log.error("Error uploading profile image for user: {}", userId, e);
             throw new RuntimeException("Failed to upload profile image: " + e.getMessage());
         }
     }
@@ -178,7 +172,6 @@ public class UserService {
      * Remove profile image
      */
     public UserDto removeProfileImage(String email) {
-        log.info("Removing profile image for user: {}", email);
 
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found: " + email));
@@ -193,47 +186,50 @@ public class UserService {
             user.setUpdatedAt(Instant.now());
 
             User savedUser = userRepository.save(user);
-            log.info("Profile image removed successfully for user: {}", email);
 
             return userMapper.toDto(savedUser);
         } catch (Exception e) {
-            log.error("Error removing profile image for user: {}", email, e);
             throw new RuntimeException("Failed to remove profile image: " + e.getMessage());
         }
     }
 
-    /**
-     * Reset password
-     */
-    public void resetPassword(String email, PasswordResetDto passwordResetDto) {
-        log.info("Resetting password for user: {}", email);
+    public void createPasswordResetToken(String email) {
+        userRepository.findByEmail(email).ifPresent(user -> {
+            String token = UUID.randomUUID().toString();
 
-        // Validate passwords match
-        if (!passwordResetDto.getNewPassword().equals(passwordResetDto.getConfirmPassword())) {
-            throw new RuntimeException("Passwords do not match");
-        }
+            user.setResetToken(token);
+            user.setResetTokenExpiry(Instant.now().plus(30, ChronoUnit.MINUTES));
+            userRepository.save(user);
 
-        // Validate password strength
-        if (!isPasswordStrong(passwordResetDto.getNewPassword())) {
-            throw new RuntimeException("Password does not meet security requirements");
-        }
+            // Costruiamo il link dinamicamente
+            // Assicurati che il path (/reset-password) sia lo stesso definito in Angular
+            String resetLink = String.format("%s/auth/reset-password?token=%s", frontendUrl, token);
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("User not found: " + email));
+            emailService.sendResetLink(user.getEmail(), resetLink);
+        });
+    }
 
-        String hashedPassword = passwordEncoder.encode(passwordResetDto.getNewPassword());
-        user.setPasswordHash(hashedPassword);
+    public void resetPasswordWithToken(String token, String newPassword) {
+        // Cerchiamo l'utente che ha quel token E non è scaduto
+        User user = userRepository.findByResetToken(token)
+                .filter(u -> u.getResetTokenExpiry() != null && u.getResetTokenExpiry().isAfter(Instant.now()))
+                .orElseThrow(() -> new RuntimeException("Token non valido o scaduto"));
+
+        // Aggiorniamo la password
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+
+        // Pulizia token per renderlo monouso
+        user.setResetToken(null);
+        user.setResetTokenExpiry(null);
         user.setUpdatedAt(Instant.now());
 
         userRepository.save(user);
-        log.info("Password reset successfully for user: {}", email);
     }
 
     /**
      * Delete user account
      */
     public void deleteUserAccount(String email, String password) {
-        log.info("Deleting account for user: {}", email);
 
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found: " + email));
@@ -251,9 +247,7 @@ public class UserService {
 
             // Delete user from database
             userRepository.deleteById(user.getId());
-            log.info("Account deleted successfully for user: {}", email);
         } catch (Exception e) {
-            log.error("Error deleting account for user: {}", email, e);
             throw new RuntimeException("Failed to delete account: " + e.getMessage());
         }
     }
@@ -262,8 +256,6 @@ public class UserService {
      * Update last login timestamp
      */
     public void updateLastLogin(String email) {
-        log.info("Updating last login for user: {}", email);
-
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found: " + email));
 
@@ -287,7 +279,6 @@ public class UserService {
             String fileName = "users/" + userId + "/profile-" + System.currentTimeMillis() + ".jpg";
             return minIOService.uploadByteArray(imageBytes, fileName);
         } catch (Exception e) {
-            log.error("Error saving profile image from base64 for user: {}", userId, e);
             throw new RuntimeException("Failed to save profile image: " + e.getMessage());
         }
     }

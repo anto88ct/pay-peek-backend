@@ -2,7 +2,6 @@ package com.paypeek.backend.service;
 
 import io.minio.*;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Service;
 import io.minio.http.Method;
 import org.springframework.web.multipart.MultipartFile;

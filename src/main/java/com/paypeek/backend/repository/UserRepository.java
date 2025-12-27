@@ -8,23 +8,10 @@ import java.util.Optional;
 @Repository
 public interface UserRepository extends MongoRepository<User, String> {
 
-    /**
-     * Find user by email
-     */
     Optional<User> findByEmail(String email);
-
-    /**
-     * Check if user exists by email
-     */
-    boolean existsByEmail(String email);
-
-    /**
-     * Find user by email and enabled status
-     */
+    Optional<User> findByResetToken(String resetToken);
     Optional<User> findByEmailAndEnabled(String email, boolean enabled);
 
-    /**
-     * Count total users
-     */
+    boolean existsByEmail(String email);
     long countByEnabled(boolean enabled);
 }

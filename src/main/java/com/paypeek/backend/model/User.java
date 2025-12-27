@@ -40,4 +40,6 @@ public class User extends BaseEntity {
     @lombok.Builder.Default
     private Integer uploadedDocumentsCount = 0;
     private boolean emailNotifications;
+    private String resetToken;
+    private Instant resetTokenExpiry;
 }

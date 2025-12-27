@@ -1,18 +1,22 @@
 package com.paypeek.backend.controller;
 
 import com.paypeek.backend.dto.PasswordResetDto;
+import com.paypeek.backend.dto.PasswordResetRequestDto;
 import com.paypeek.backend.dto.ProfileUpdateDto;
 import com.paypeek.backend.dto.UserDto;
 import com.paypeek.backend.dto.enums.Language;
 import com.paypeek.backend.dto.enums.Theme;
 import com.paypeek.backend.exception.ResourceNotFoundException;
 import com.paypeek.backend.service.UserService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/users")
@@ -80,18 +84,19 @@ public class UserController {
         }
     }
 
-    @PostMapping("/password-reset")
-    public ResponseEntity<Void> resetPassword(
-            @RequestBody PasswordResetDto passwordResetDto,
-            Authentication authentication) {
-        try {
-            UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-            userService.resetPassword(userDetails.getUsername(), passwordResetDto);
-            return ResponseEntity.ok().build();
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.internalServerError().build();
+    @PostMapping("/password-reset-request")
+    public ResponseEntity<Void> requestReset(@RequestBody @Valid PasswordResetRequestDto dto) {
+        userService.createPasswordResetToken(dto.email());
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/password-reset-complete")
+    public ResponseEntity<Void> completeReset(@RequestBody @Valid PasswordResetDto dto) {
+        if (!dto.getNewPassword().equals(dto.getConfirmPassword())) {
+            return ResponseEntity.badRequest().build();
         }
+        userService.resetPasswordWithToken(dto.getToken(), dto.getNewPassword());
+        return ResponseEntity.ok().build();
     }
 
     @PatchMapping("/preferences/{userId}/language")
