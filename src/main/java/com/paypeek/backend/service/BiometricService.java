@@ -4,6 +4,7 @@ import com.paypeek.backend.dto.AuthResponse;
 import com.paypeek.backend.dto.BiometricLoginRequest;
 import com.paypeek.backend.dto.BiometricRegisterRequest;
 import com.paypeek.backend.dto.UserDto;
+import com.webauthn4j.data.attestation.authenticator.AAGUID;
 import com.paypeek.backend.dto.mapper.UserMapper;
 import com.paypeek.backend.exception.BiometricAuthException;
 import com.paypeek.backend.exception.BiometricNotAvailableException;
@@ -14,13 +15,23 @@ import com.paypeek.backend.repository.UserCredentialRepository;
 import com.paypeek.backend.repository.UserRepository;
 import com.paypeek.backend.security.JwtService;
 import com.webauthn4j.WebAuthnManager;
+import com.webauthn4j.authenticator.Authenticator;
+import com.webauthn4j.authenticator.AuthenticatorImpl;
+import com.webauthn4j.converter.AttestationObjectConverter;
+import com.webauthn4j.converter.AuthenticatorDataConverter;
+import com.webauthn4j.converter.CollectedClientDataConverter;
 import com.webauthn4j.converter.util.ObjectConverter;
 import com.webauthn4j.data.*;
+import com.webauthn4j.data.attestation.AttestationObject;
+import com.webauthn4j.data.attestation.authenticator.AttestedCredentialData;
+import com.webauthn4j.data.attestation.authenticator.AuthenticatorData;
 import com.webauthn4j.data.attestation.statement.COSEAlgorithmIdentifier;
+import com.webauthn4j.data.client.CollectedClientData;
 import com.webauthn4j.data.client.Origin;
 import com.webauthn4j.data.client.challenge.Challenge;
 import com.webauthn4j.data.client.challenge.DefaultChallenge;
 import com.webauthn4j.server.ServerProperty;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -28,6 +39,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.Base64;
 import java.util.concurrent.ConcurrentHashMap;
@@ -52,6 +64,16 @@ public class BiometricService {
     private static final String RP_ID = "localhost";
     private static final String RP_NAME = "PayPeek";
     private static final Origin ORIGIN = new Origin("http://localhost:4200");
+
+    @PostConstruct
+    public void init() {
+        try {
+            String version = com.webauthn4j.WebAuthnManager.class.getPackage().getImplementationVersion();
+            log.info("🚀 [STARTUP] WebAuthn4j Version: {}", version);
+        } catch (Exception e) {
+            log.warn("⚠️ [STARTUP] Impossibile determinare la versione di WebAuthn4j");
+        }
+    }
 
     /**
      * Generate challenge for registration
@@ -89,78 +111,130 @@ public class BiometricService {
                 null);
     }
 
+    private byte[] decodeBase64(String input) {
+        if (input == null || input.isEmpty()) return new byte[0];
+
+        // 1. Pulizia minima (solo spazi e ritorni a capo)
+        String cleaned = input.trim().replaceAll("\\s", "");
+
+        // 2. Normalizzazione da Standard Base64 a URL-Safe (se necessario)
+        cleaned = cleaned.replace('+', '-').replace('/', '_');
+
+        // 3. Rimuovi il padding '=' per sicurezza prima della decodifica URL-safe
+        cleaned = cleaned.replace("=", "");
+
+        try {
+            return Base64.getUrlDecoder().decode(cleaned);
+        } catch (IllegalArgumentException e) {
+            log.error("❌ Errore decodifica Base64: {}", e.getMessage());
+            throw new BiometricAuthException("Formato Base64 non valido");
+        }
+    }
+
     /**
      * Register biometric credential
      */
     public AuthResponse registerBiometric(BiometricRegisterRequest request) {
         String email = request.getEmail();
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new UserNotFoundException("Utente non trovato: " + email));
+                .orElseThrow(() -> new UserNotFoundException("Utente non trovato"));
 
         Challenge challenge = challengeStore.remove(email);
-        if (challenge == null) {
-            throw new BiometricAuthException("Challenge scaduta o non trovata");
-        }
+        if (challenge == null) throw new BiometricAuthException("Challenge scaduta");
 
         try {
-            // Decode WebAuthn response
-            byte[] clientDataJSON = Base64.getUrlDecoder()
-                    .decode(request.getCredential().getResponse().getClientDataJSON());
-            byte[] attestationObject = Base64.getUrlDecoder()
-                    .decode(request.getCredential().getResponse().getAttestationObject());
 
+            // 1. Decodifica i byte array dai dati Base64
+            byte[] clientDataBytes = decodeBase64(request.getCredential().getResponse().getClientDataJSON());
+            byte[] attestationObjectBytes = decodeBase64(request.getCredential().getResponse().getAttestationObject());
+
+            // 2. PARSING MANUALE (Bypass del bug interno)
+            // Usiamo i converter della libreria ma li invochiamo noi direttamente
+            CollectedClientDataConverter clientDataConverter = new CollectedClientDataConverter(objectConverter);
+            AttestationObjectConverter attestationConverter = new AttestationObjectConverter(objectConverter);
+
+            // Se il bug è nel JSON parser, qui possiamo gestirlo
+            CollectedClientData collectedClientData = clientDataConverter.convert(clientDataBytes);
+            AttestationObject attestationObject = attestationConverter.convert(attestationObjectBytes);
+
+            // 3. COSTRUZIONE MANUALE DI REGISTRATION DATA
+            // Questo oggetto contiene già i dati parsati, quindi il 'verify' non dovrà più parsare nulla
+            RegistrationData registrationData = new RegistrationData(
+                    attestationObject,
+                    attestationObjectBytes,
+                    collectedClientData,
+                    clientDataBytes,
+                    null, // clientExtensionResults
+                    null  // transports
+            );
+
+            // 4. VALIDAZIONE LOGICA E CRITTOGRAFICA
             ServerProperty serverProperty = new ServerProperty(ORIGIN, RP_ID, challenge, null);
-            RegistrationRequest registrationRequest = new RegistrationRequest(clientDataJSON, attestationObject);
-
             RegistrationParameters registrationParameters = new RegistrationParameters(
                     serverProperty,
                     null,
-                    false
+                    true // selfAttestationAllowed
             );
 
-            // Validate registration
-            RegistrationData registrationData = webAuthnManager.validate(registrationRequest, registrationParameters);
+            // Usiamo il metodo verify(RegistrationData, ...) invece di validate(RegistrationRequest, ...)
+            // Questo metodo NON esegue il parsing ma solo il controllo di firme, challenge e origin
+            webAuthnManager.verify(registrationData, registrationParameters);
 
-            // Extract and save credential
-            byte[] credentialId = registrationData.getAttestationObject()
-                    .getAuthenticatorData()
-                    .getAttestedCredentialData()
-                    .getCredentialId();
-            com.webauthn4j.data.attestation.authenticator.COSEKey coseKey = registrationData.getAttestationObject()
-                    .getAuthenticatorData()
-                    .getAttestedCredentialData()
-                    .getCOSEKey();
-            long signCount = registrationData.getAttestationObject()
-                    .getAuthenticatorData()
-                    .getSignCount();
+            // 5. SALVATAGGIO
+            byte[] credentialId = registrationData.getAttestationObject().getAuthenticatorData().getAttestedCredentialData().getCredentialId();
+            byte[] publicKey = objectConverter.getCborConverter().writeValueAsBytes(
+                    registrationData.getAttestationObject().getAuthenticatorData().getAttestedCredentialData().getCOSEKey()
+            );
 
             UserCredential credential = UserCredential.builder()
                     .userId(user.getId())
                     .credentialId(Base64.getUrlEncoder().withoutPadding().encodeToString(credentialId))
-                    .publicKey(objectConverter.getCborConverter().writeValueAsBytes(coseKey))
-                    .signCount(signCount)
-                    .transports(Collections.emptyList())
+                    .publicKey(publicKey)
+                    .signCount(registrationData.getAttestationObject().getAuthenticatorData().getSignCount())
                     .build();
 
             userCredentialRepository.save(credential);
-
-            // Enable biometric preference
             user.setBiometricEnabled(true);
             userRepository.save(user);
 
-            log.info("Biometric registered successfully for email: {}", email);
-
-            // ✅ FIXED: Usa fully qualified name
-            UserDetails userDetails = buildUserDetails(user);
-            String token = jwtService.generateToken(userDetails);
-            UserDto userDto = userMapper.toDto(user);
-
-            return new AuthResponse(token, userDto);
+            return new AuthResponse(jwtService.generateToken(buildUserDetails(user)), userMapper.toDto(user));
 
         } catch (Exception e) {
-            log.error("Error registering biometric for email: {}", email, e);
-            throw new BiometricAuthException("Errore nella registrazione biometrica: " + e.getMessage(), e);
+            log.error("❌ [BIOMETRIC] Errore: {}", e.getMessage(), e);
+            throw new BiometricAuthException("Validazione fallita: " + e.getMessage());
         }
+    }
+
+// ==================== METODI HELPER DI SUPPORTO ====================
+
+    /**
+     * Estrae la stringa Base64 gestendo sia il formato stringa semplice
+     * che l'eventuale incapsulamento in un oggetto JSON {"value": "..."}
+     */
+    private String extractBase64(Object input) {
+        if (input == null) return "";
+        if (input instanceof String) return (String) input;
+        if (input instanceof Map) {
+            return (String) ((Map<?, ?>) input).get("value");
+        }
+        return input.toString();
+    }
+
+    /**
+     * Rimuove il Byte Order Mark (BOM) UTF-8 (EF BB BF) se presente all'inizio del byte array.
+     * Jackson fallisce miseramente se trova questi byte all'inizio di un file JSON.
+     */
+    private byte[] stripBom(byte[] data) {
+        if (data.length >= 3 &&
+                (data[0] & 0xFF) == 0xEF &&
+                (data[1] & 0xFF) == 0xBB &&
+                (data[2] & 0xFF) == 0xBF) {
+            log.warn("⚠️ [BIOMETRIC] Rilevato e rimosso UTF-8 BOM dai dati ricevuti");
+            byte[] stripped = new byte[data.length - 3];
+            System.arraycopy(data, 3, stripped, 0, stripped.length);
+            return stripped;
+        }
+        return data;
     }
 
     /**
@@ -192,74 +266,98 @@ public class BiometricService {
     }
 
     /**
-     * Login with biometric
+     * Login con biometria (Assertion)
+     * Versione aggiornata con Manual Parsing Bypass
      */
     public AuthResponse loginBiometric(BiometricLoginRequest request) {
         String email = request.getEmail();
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UserNotFoundException("Utente non trovato: " + email));
 
+        // 1. Recupero Challenge
         Challenge challenge = challengeStore.remove(email);
         if (challenge == null) {
-            throw new BiometricAuthException("Challenge scaduta o non trovata");
+            throw new BiometricAuthException("Challenge scaduta o non trovata. Riprova il login.");
         }
 
         try {
-            String credentialId = request.getAssertion().getId();
-            UserCredential credential = userCredentialRepository.findByCredentialId(credentialId)
-                    .orElseThrow(() -> new BiometricAuthException("Credenziale non trovata"));
+            String credentialIdStr = request.getAssertion().getId();
+
+            // 2. Recupero credenziale e chiave pubblica dal DB
+            UserCredential credential = userCredentialRepository.findByCredentialId(credentialIdStr)
+                    .orElseThrow(() -> new BiometricAuthException("Credenziale biometrica non trovata nel database"));
 
             if (!credential.getUserId().equals(user.getId())) {
-                throw new BiometricAuthException("Credenziale non appartiene all'utente");
+                throw new BiometricAuthException("Questa credenziale non appartiene all'utente specificato");
             }
 
-            // Decode assertion response
-            byte[] clientDataJSON = Base64.getUrlDecoder()
-                    .decode(request.getAssertion().getResponse().getClientDataJSON());
-            byte[] authenticatorData = Base64.getUrlDecoder()
-                    .decode(request.getAssertion().getResponse().getAuthenticatorData());
-            byte[] signature = Base64.getUrlDecoder()
-                    .decode(request.getAssertion().getResponse().getSignature());
-            byte[] userHandle = request.getAssertion().getResponse().getUserHandle() != null
-                    ? Base64.getUrlDecoder().decode(request.getAssertion().getResponse().getUserHandle())
-                    : null;
+            // 3. Decodifica Base64URL di tutti i componenti dell'assertion
+            byte[] credentialId = decodeBase64(credentialIdStr);
+            byte[] clientDataBytes = decodeBase64(request.getAssertion().getResponse().getClientDataJSON());
+            byte[] authDataBytes = decodeBase64(request.getAssertion().getResponse().getAuthenticatorData());
+            byte[] signature = decodeBase64(request.getAssertion().getResponse().getSignature());
 
-            ServerProperty serverProperty = new ServerProperty(ORIGIN, RP_ID, challenge, null);
-            AuthenticationRequest authenticationRequest = new AuthenticationRequest(
-                    Base64.getUrlDecoder().decode(credentialId),
-                    userHandle,
-                    authenticatorData,
-                    clientDataJSON,
-                    signature);
+            String rawUserHandle = request.getAssertion().getResponse().getUserHandle();
+            byte[] userHandle = (rawUserHandle != null) ? decodeBase64(rawUserHandle) : null;
 
-            AuthenticationParameters authenticationParameters = new AuthenticationParameters(
-                    serverProperty,
+            // 4. PARSING MANUALE (Bypass del bug Jackson interno a WebAuthn4j)
+            CollectedClientDataConverter clientDataConverter = new CollectedClientDataConverter(objectConverter);
+            AuthenticatorDataConverter authDataConverter = new AuthenticatorDataConverter(objectConverter);
+
+            CollectedClientData collectedClientData = clientDataConverter.convert(clientDataBytes);
+            AuthenticatorData authenticatorData = authDataConverter.convert(authDataBytes);
+
+            // 5. Ricostruzione dell'Authenticator con Chiave Pubblica DB
+            com.webauthn4j.data.attestation.authenticator.COSEKey publicKey =
+                    objectConverter.getCborConverter().readValue(credential.getPublicKey(),
+                            com.webauthn4j.data.attestation.authenticator.COSEKey.class);
+
+            Authenticator authenticator = new AuthenticatorImpl(
+                    new AttestedCredentialData(
+                            AAGUID.ZERO,
+                            decodeBase64(credential.getCredentialId()),
+                            publicKey
+                    ),
                     null,
-                    false
+                    credential.getSignCount()
             );
 
-            AuthenticationData authData = webAuthnManager.validate(
-                    authenticationRequest,
-                    authenticationParameters);
+            // 6. Costruzione dell'oggetto AuthenticationData per la verifica
+            // Nota l'ordine esatto dei parametri richiesti dal costruttore della 0.28.x
+            AuthenticationData authenticationData = new AuthenticationData(
+                    credentialId,       // 1. @Nullable byte[] credentialId
+                    userHandle,         // 2. @Nullable byte[] userHandle
+                    authenticatorData,  // 3. @Nullable AuthenticatorData authenticatorData (oggetto parsato)
+                    authDataBytes,      // 4. @Nullable byte[] authenticatorDataBytes (byte grezzi)
+                    collectedClientData,// 5. @Nullable CollectedClientData collectedClientData (oggetto parsato)
+                    clientDataBytes,    // 6. @Nullable byte[] collectedClientDataBytes (byte grezzi)
+                    null,               // 7. @Nullable AuthenticationExtensionsClientOutputs clientExtensions
+                    signature           // 8. @Nullable byte[] signature
+            );
 
-            // Update sign count
-            credential.setSignCount(authData.getAuthenticatorData().getSignCount());
+            // 7. Validazione Crittografica (Firma, Challenge, Origin, SignCount)
+            ServerProperty serverProperty = new ServerProperty(ORIGIN, RP_ID, challenge, null);
+            AuthenticationParameters authenticationParameters = new AuthenticationParameters(
+                    serverProperty,
+                    authenticator,
+                    false // userVerificationRequired (setta a true se vuoi forzare FaceID/PIN)
+            );
+
+            // Usiamo verify() invece di validate() per coerenza con le nuove versioni
+            webAuthnManager.verify(authenticationData, authenticationParameters);
+
+            // 8. Aggiornamento Sign Count (Protezione contro il replay attack)
+            credential.setSignCount(authenticationData.getAuthenticatorData().getSignCount());
             userCredentialRepository.save(credential);
 
-            log.info("Biometric login successful for email: {}", email);
+            log.info("✅ [BIOMETRIC] Login completato con successo per l'utente: {}", email);
 
-            // ✅ FIXED: Usa fully qualified name
-            UserDetails userDetails = buildUserDetails(user);
-            String token = jwtService.generateToken(userDetails);
-            UserDto userDto = userMapper.toDto(user);
+            // Generazione Token JWT e risposta
+            return new AuthResponse(jwtService.generateToken(buildUserDetails(user)), userMapper.toDto(user));
 
-            return new AuthResponse(token, userDto);
-
-        } catch (BiometricAuthException e) {
-            throw e;
         } catch (Exception e) {
-            log.error("Error processing biometric login for email: {}", email, e);
-            throw new BiometricAuthException("Errore nell'autenticazione biometrica: " + e.getMessage(), e);
+            log.error("❌ [BIOMETRIC] Errore critico durante il login di {}: {}", email, e.getMessage());
+            throw new BiometricAuthException("Autenticazione biometrica fallita: " + e.getMessage());
         }
     }
 

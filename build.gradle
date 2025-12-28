@@ -37,7 +37,8 @@ dependencies {
 	implementation 'net.sourceforge.tess4j:tess4j:5.11.0'
 	implementation 'org.apache.pdfbox:pdfbox:3.0.2'
 
-	implementation 'com.webauthn4j:webauthn4j-core:0.20.0.RELEASE'
+	implementation 'com.webauthn4j:webauthn4j-core:0.28.5.RELEASE'
+	implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:2.15.2'
 
 	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
@@ -55,4 +56,14 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+configurations.all {
+	resolutionStrategy.eachDependency { details ->
+		if (details.requested.group == 'com.webauthn4j') {
+			// USA QUESTA VERSIONE: risolve i bug di compatibilità Jackson 2.15+
+			details.useVersion '0.28.5.RELEASE'
+			details.because 'Correzione bug conversione JSON con Jackson recente'
+		}
+	}
 }
