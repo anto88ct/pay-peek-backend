@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.Map;
 
 @Data
 @Builder
@@ -15,7 +16,12 @@ public class FileItemDto {
     private String id;
     private String name;
     private String url;
-    private String type; // 'pdf'
+    private String type;
     private Long size;
     private Instant uploadDate;
+
+    // Nuovi campi per il FE
+    private int anno;
+    private int mese;
+    private Map<String, Object> dati;
 }

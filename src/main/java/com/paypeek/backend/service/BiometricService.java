@@ -208,36 +208,6 @@ public class BiometricService {
 // ==================== METODI HELPER DI SUPPORTO ====================
 
     /**
-     * Estrae la stringa Base64 gestendo sia il formato stringa semplice
-     * che l'eventuale incapsulamento in un oggetto JSON {"value": "..."}
-     */
-    private String extractBase64(Object input) {
-        if (input == null) return "";
-        if (input instanceof String) return (String) input;
-        if (input instanceof Map) {
-            return (String) ((Map<?, ?>) input).get("value");
-        }
-        return input.toString();
-    }
-
-    /**
-     * Rimuove il Byte Order Mark (BOM) UTF-8 (EF BB BF) se presente all'inizio del byte array.
-     * Jackson fallisce miseramente se trova questi byte all'inizio di un file JSON.
-     */
-    private byte[] stripBom(byte[] data) {
-        if (data.length >= 3 &&
-                (data[0] & 0xFF) == 0xEF &&
-                (data[1] & 0xFF) == 0xBB &&
-                (data[2] & 0xFF) == 0xBF) {
-            log.warn("⚠️ [BIOMETRIC] Rilevato e rimosso UTF-8 BOM dai dati ricevuti");
-            byte[] stripped = new byte[data.length - 3];
-            System.arraycopy(data, 3, stripped, 0, stripped.length);
-            return stripped;
-        }
-        return data;
-    }
-
-    /**
      * Generate challenge for login
      */
     public PublicKeyCredentialRequestOptions generateLoginChallenge(String email) {
@@ -373,7 +343,7 @@ public class BiometricService {
     // ==================== UTILITY METHODS ====================
 
     /**
-     * ✅ HELPER: Crea UserDetails da User model di Pay Peek
+     * Crea UserDetails da User model di Pay Peek
      */
     private UserDetails buildUserDetails(User user) {
         List<SimpleGrantedAuthority> authorities = new ArrayList<>();
@@ -383,7 +353,6 @@ public class BiometricService {
             authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
         }
 
-        // ✅ FIXED: Usa fully qualified name direttamente
         return org.springframework.security.core.userdetails.User.builder()
                 .username(user.getEmail())
                 .password(user.getPasswordHash())

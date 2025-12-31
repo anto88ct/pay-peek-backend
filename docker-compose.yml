@@ -1,8 +1,3 @@
-# ===============================
-# Pay Peek - Docker Compose
-# ===============================
-# Orchestrazione completa: Frontend, Backend, MongoDB, MinIO
-
 services:
   # ===============================
   # MongoDB - Database
@@ -34,8 +29,8 @@ services:
     container_name: paypeek-minio
     restart: unless-stopped
     ports:
-      - "9000:9000" # API
-      - "9001:9001" # Console
+      - "9000:9000"
+      - "9001:9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
@@ -69,7 +64,8 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       JWT_SECRET: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
-      TESSERACT_DATAPATH: /usr/share/tesseract-ocr/5/tessdata
+      # Puntiamo all'alias del container extractor
+      EXTRACTOR_URL: http://paypeek-extractor:8000
     depends_on:
       mongodb:
         condition: service_healthy
@@ -85,7 +81,7 @@ services:
       start_period: 60s
 
   # ===============================
-  # Frontend - Angular PWA (Nginx)
+  # Frontend - Angular PWA
   # ===============================
   frontend:
     build:
@@ -100,15 +96,9 @@ services:
         condition: service_healthy
     networks:
       - paypeek-network
-    healthcheck:
-      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
 
   # ===============================
-  # Extractor - PDF to Markdown (Python)
+  # Extractor - Gemini Vision OCR (Python)
   # ===============================
   extractor:
     build:
@@ -118,17 +108,20 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
-    networks:
-      - paypeek-network
+    volumes:
+      - ../pdf-extractor:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       - PYTHONUNBUFFERED=1
-    depends_on:
-      - minio
-
+      # Inserisci qui la tua chiave per Gemini
+      - GEMINI_API_KEY=AIzaSyBZibWqwfPnTj8crmujzXbEtHa5kM1Busk
+    networks:
+      paypeek-network:
+        aliases:
+          - paypeek-extractor
 
   # ===============================
-  # LightRAG - AI Engine (API wrapper)
-  # ===============================
+  # LightRAG - AI Engine
   # ===============================
   lightrag:
     build:
@@ -138,29 +131,18 @@ services:
     restart: unless-stopped
     ports:
       - "8020:8020"
-    environment:
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
     volumes:
       - ./lightrag_data:/app/data
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     networks:
       - paypeek-network
-    depends_on:
-      - mongodb
+    # Nota: Se LightRAG usava Ollama, dovrai configurarlo per usare OpenAI o Gemini API
+    environment:
+      - API_KEY=la_tua_chiave_se_supportata
 
-# ===============================
-# Networks
-# ===============================
 networks:
   paypeek-network:
     driver: bridge
 
-# ===============================
-# Volumes - Persistent Data
-# ===============================
 volumes:
   mongodb_data:
-    driver: local
   minio_data:
-    driver: local

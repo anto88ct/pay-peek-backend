@@ -1,3 +1,7 @@
+app:
+  extractor:
+    url: http://localhost:8000
+
 server:
   port: 8080
 
