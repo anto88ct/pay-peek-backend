@@ -15,7 +15,11 @@ spring:
   banner:
     location: classpath:banner.txt
     charset: UTF-8
-
+  batch:
+    job:
+      enabled: false # Impedisce l'avvio di tutti i job all'accensione (li gestiamo noi con lo scheduler)
+    jdbc:
+      initialize-schema: always # Crea le tabelle BATCH_* automaticamente
   mail:
     host: smtp.gmail.com
     port: 587

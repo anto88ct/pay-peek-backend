@@ -1,7 +1,8 @@
 package com.paypeek.backend.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.paypeek.backend.dto.ErrorResponseDto;
 import com.paypeek.backend.dto.FileItemDto;
+import com.paypeek.backend.dto.MassUploadResponseDto;
 import com.paypeek.backend.dto.mapper.YearFolderMapper;
 import com.paypeek.backend.dto.PayslipResponseDto;
 import com.paypeek.backend.model.*;
@@ -10,25 +11,11 @@ import com.paypeek.backend.repository.PayslipRepository;
 import com.paypeek.backend.repository.UserRepository;
 import com.paypeek.backend.repository.YearFolderRepository;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.web.client.RestTemplateBuilder;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.core.io.ByteArrayResource;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
-
 import java.io.IOException;
 import java.security.MessageDigest;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.Month;
@@ -45,17 +32,8 @@ public class PayslipService {
     private final YearFolderRepository yearFolderRepository;
     private final UserRepository userRepository;
     private final YearFolderMapper yearFolderMapper;
-    private final RestTemplate restTemplate;
-    private final ObjectMapper objectMapper;
-    private final PayslipService self;
-
-//    @Value("${app.extractor.url:http://paypeek-extractor:8000}") //PROD
-
-    @Value("${app.extractor.url:http://localhost:8000}") //DEV
-    private String extractorUrl;
-
-    @Value("${app.lightrag.url:http://paypeek-lightrag:8020}")
-    private String lightragUrl;
+    private final AIService aiService;
+    private final LightRagService lightRagService;
 
     public PayslipService(MinIOService minIOService,
                           YearFolderRepository yearFolderRepository,
@@ -63,21 +41,16 @@ public class PayslipService {
                           YearFolderMapper yearFolderMapper,
                           PayrollTemplateRepository payrollTemplateRepository,
                           PayslipRepository payslipRepository,
-                          @Lazy PayslipService self,
-                          RestTemplateBuilder restTemplateBuilder,
-                          ObjectMapper objectMapper) { // <-- AGGIUNTO QUI
+                          AIService aiService,
+                          LightRagService lightRagService) {
         this.minIOService = minIOService;
         this.yearFolderRepository = yearFolderRepository;
         this.userRepository = userRepository;
         this.yearFolderMapper = yearFolderMapper;
         this.payrollTemplateRepository = payrollTemplateRepository;
         this.payslipRepository = payslipRepository;
-        this.self = self;
-        this.objectMapper = objectMapper; // <-- ORA FUNZIONA
-        this.restTemplate = restTemplateBuilder
-                .connectTimeout(Duration.ofSeconds(5))
-                .readTimeout(Duration.ofSeconds(300))
-                .build();
+        this.aiService = aiService;
+        this.lightRagService = lightRagService;
     }
 
 
@@ -88,7 +61,7 @@ public class PayslipService {
         User user = getCurrentUser(); // Recupera l'utente
         log.info("Inizio buildPayslipTemplate per utente: {} - file: {}", user.getEmail(), file.getOriginalFilename());
 
-        Map<String, Object> response = callPythonExtractor(file);
+        Map<String, Object> response = aiService.callPythonExtractor(file);
 
         if (response == null || !response.containsKey("signature")) {
             throw new RuntimeException("L'estrattore non ha restituito dati validi");
@@ -123,8 +96,6 @@ public class PayslipService {
         return payslipRepository.save(payslip);
     }
 
-
-
     /**
      * UPLOAD SINGOLO: Carica in una cartella specifica (ID mese fornito dal FE)
      */
@@ -132,7 +103,7 @@ public class PayslipService {
         User user = getCurrentUser();
 
         // 1. Estrazione testo per LightRAG
-        String markdown = extractMarkdown(file);
+        String markdown = aiService.extractMarkdown(file);
 
         if(markdown == null)
             throw new NullPointerException("Estrazione dati fallita");
@@ -158,31 +129,11 @@ public class PayslipService {
 
         // 5. Pipeline AI asincrona
         if (markdown != null) {
-            self.sendToLightRagAsync(file.getOriginalFilename(), markdown);
+            lightRagService.sendToLightRagAsync(file.getOriginalFilename(), markdown);
         }
 
         return yearFolderMapper.toDto(fileItem);
     }
-
-    private int parseAiYear(Map<String, Object> aiData, String filename) {
-        Object yearObj = aiData.get("anno"); // Supponendo che Python lo estragga
-        try {
-            if (yearObj != null && !yearObj.toString().equals("N.D.")) {
-                return Integer.parseInt(yearObj.toString().replaceAll("[^0-9]", ""));
-            }
-        } catch (Exception e) {}
-        // Fallback: cerca l'anno nel nome del file o usa quello corrente
-        return LocalDate.now().getYear();
-    }
-
-    private int parseAiMonth(Map<String, Object> aiData) {
-        // Simile a sopra per il mese
-        return LocalDate.now().getMonthValue();
-    }
-
-    /**
-     * MASS UPLOAD: Rileva automaticamente Anno/Mese dal contenuto del PDF
-     */
 
     /**
      * MASS UPLOAD: Rileva automaticamente se usare Template (Regex) o AI Vision pura
@@ -192,55 +143,72 @@ public class PayslipService {
         List<PayslipResponseDto> results = new ArrayList<>();
 
         for (MultipartFile file : files) {
+            String fileName = file.getOriginalFilename();
+
+            // Inizializziamo il DTO per il file corrente con una lista errori vuota
+            PayslipResponseDto response = PayslipResponseDto.builder()
+                    .extractionErrors(new ArrayList<>())
+                    .build();
+
             try {
                 // 1. Calcolo Signature locale
                 String signature = calculateSHA256(file);
+                response.setSignature(signature);
 
                 // 2. Controllo esistenza Template
                 Optional<PayrollTemplate> templateOpt = payrollTemplateRepository.findBySignatureAndUserId(signature, user.getId());
 
                 Map<String, Object> aiResponse;
-                Map<String, Object> extractedData;
-
                 if (templateOpt.isPresent()) {
-                    log.info("Documento noto. Uso estrazione guidata per: {}", file.getOriginalFilename());
-                    aiResponse = callPythonWithTemplate(file, templateOpt.get().getRegexPatterns());
+                    log.info("Documento noto. Uso estrazione guidata per: {}", fileName);
+                    aiResponse = aiService.callPythonWithTemplate(file, templateOpt.get().getRegexPatterns());
                 } else {
-                    log.info("Documento nuovo. Uso AI Vision generica per: {}", file.getOriginalFilename());
-                    aiResponse = callPythonExtractor(file);
+                    log.info("Documento nuovo. Uso AI Vision generica per: {}", fileName);
+                    aiResponse = aiService.callPythonExtractor(file);
                 }
 
-                // Estraiamo la mappa dei dati usando la chiave camelCase definita in Python
-                extractedData = (Map<String, Object>) aiResponse.get("extractedData");
+                // Estrazione dati
+                Map<String, Object> extractedData = (Map<String, Object>) aiResponse.get("extractedData");
 
+                // --- GESTIONE ERRORE ESTRAZIONE (AI fallita o dati nulli) ---
                 if (extractedData == null) {
-                    log.error("L'estrattore non ha restituito dati validi per {}", file.getOriginalFilename());
-                    continue;
+                    log.error("L'estrattore non ha restituito dati validi per {}", fileName);
+
+                    response.getExtractionErrors().add(ErrorResponseDto.builder()
+                            .type("EXTRACTION_ERROR")
+                            .statusCode(422)
+                            .message("L'intelligenza artificiale non ha rilevato dati validi nel file: " + fileName)
+                            .path(fileName)
+                            .timestamp(Instant.now())
+                            .build());
+
+                    results.add(response);
+                    continue; // Passa al file successivo senza salvare nulla
                 }
 
-                // 3. Determiniamo Anno e Mese (metodi aggiornati per navigare la mappa annidata)
-                int year = parseYear(extractedData, file.getOriginalFilename());
+                // 3. Determinazione Anno e Mese
+                int year = parseYear(extractedData, fileName);
                 int month = parseMonth(extractedData);
 
                 // 4. Upload Fisico su MinIO
                 String minioUrl = uploadToMinio(file, user.getId());
 
-                // 5. Salvataggio record Payslip su MongoDB (per persistenza e audit)
+                // 5. Salvataggio record Payslip su MongoDB
                 Payslip payslip = Payslip.builder()
                         .userId(user.getId())
                         .templateId(templateOpt.map(PayrollTemplate::getId).orElse("AUTO_GENERATED"))
-                        .fileName(file.getOriginalFilename())
+                        .fileName(fileName)
                         .extractedData(extractedData)
                         .build();
                 payslipRepository.save(payslip);
 
-                // 6. Organizzazione Folder MongoDB (per la UI "stile cartelle")
+                // 6. Organizzazione Folder MongoDB (UI "stile cartelle")
                 YearFolder yearFolder = getOrCreateYearFolder(user.getId(), year);
                 MonthFolder monthFolder = getOrCreateMonthFolder(yearFolder, month);
 
                 FileItem fileItem = FileItem.builder()
                         .id(UUID.randomUUID().toString())
-                        .name(file.getOriginalFilename())
+                        .name(fileName)
                         .url(minioUrl)
                         .type("pdf")
                         .size(file.getSize())
@@ -253,111 +221,27 @@ public class PayslipService {
                 monthFolder.getFiles().add(fileItem);
                 yearFolderRepository.save(yearFolder);
 
-                // 7. Prepariamo il DTO di risposta allineato
-                results.add(PayslipResponseDto.builder()
-                        .signature(signature)
-                        .azienda((String) aiResponse.getOrDefault("azienda", "Sconosciuta"))
-                        .regex((Map<String, String>) aiResponse.get("regex"))
-                        .extractedData(extractedData)
-                        .build());
+                // 7. Popolamento DTO di risposta (Successo)
+                response.setAzienda((String) aiResponse.getOrDefault("azienda", "Sconosciuta"));
+                response.setRegex((Map<String, String>) aiResponse.get("regex"));
+                response.setExtractedData(extractedData);
 
             } catch (Exception e) {
-                log.error("Errore durante l'elaborazione di {}: {}", file.getOriginalFilename(), e.getMessage());
+                log.error("Errore critico durante l'elaborazione di {}: {}", fileName, e.getMessage());
+
+                // Aggiungiamo l'errore tecnico alla lista del DTO
+                response.getExtractionErrors().add(ErrorResponseDto.builder()
+                        .type("PROCESS_ERROR")
+                        .statusCode(500)
+                        .message("Errore durante l'elaborazione di " + fileName + ": " + e.getMessage())
+                        .path(fileName)
+                        .timestamp(Instant.now())
+                        .build());
             }
+
+            results.add(response);
         }
         return results;
-    }
-
-    // --- AI PIPELINE HELPERS ---
-
-    /**
-     * Chiama Python passando il file e le regex del template salvato
-     */
-    private Map<String, Object> callPythonExtractor(MultipartFile file) {
-        return callPythonEndpoint(file, "/extract", null);
-    }
-
-    private Map<String, Object> callPythonWithTemplate(MultipartFile file, Map<String, String> patterns) {
-        try {
-            String patternsJson = objectMapper.writeValueAsString(patterns);
-            return callPythonEndpoint(file, "/extract-by-template", patternsJson);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private Map<String, Object> callPythonEndpoint(MultipartFile file, String endpoint, String rules) {
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-
-            MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-            body.add("file", new ByteArrayResource(file.getBytes()) {
-                @Override public String getFilename() { return file.getOriginalFilename(); }
-            });
-
-            if (rules != null) {
-                body.add("template_rules", rules);
-            }
-
-            HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
-            ResponseEntity<Map> response = restTemplate.postForEntity(extractorUrl + endpoint, requestEntity, Map.class);
-            return response.getBody();
-        } catch (Exception e) {
-            log.error("Errore chiamata Python {}: {}", endpoint, e.getMessage());
-            return null;
-        }
-    }
-
-    private String extractMarkdown(MultipartFile file) {
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-
-            MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-
-            // Pulizia del nome file: rimuoviamo apostrofi e caratteri non standard
-            String sanitizedFilename = file.getOriginalFilename()
-                    .replaceAll("['\\s]", "_") // Sostituisce apostrofi e spazi con underscore
-                    .replaceAll("[^a-zA-Z0-9._-]", ""); // Rimuove tutto il resto tranne punti e trattini
-
-            ByteArrayResource resource = new ByteArrayResource(file.getBytes()) {
-                @Override
-                public String getFilename() {
-                    return sanitizedFilename;
-                }
-            };
-
-            body.add("file", resource);
-
-            HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
-
-            ResponseEntity<Map> response = restTemplate.postForEntity(
-                    extractorUrl + "/extract",
-                    requestEntity,
-                    Map.class
-            );
-
-            if (response.getBody() != null && response.getBody().containsKey("markdown")) {
-                return (String) response.getBody().get("markdown");
-            }
-            return null;
-        } catch (Exception e) {
-            // Logga l'eccezione completa per vedere la causa reale (es. Timeout o Connection Reset)
-            log.error("Estrazione Fallita per {}: {}", file.getOriginalFilename(), e.toString());
-            return null;
-        }
-    }
-
-    @Async
-    public void sendToLightRagAsync(String title, String content) {
-        try {
-            Map<String, String> payload = Map.of("title", title, "content", content);
-            restTemplate.postForEntity(lightragUrl + "/insert", payload, String.class);
-            log.info("LightRAG: {} indicizzato con successo", title);
-        } catch (Exception e) {
-            log.error("LightRAG Error: {}", e.getMessage());
-        }
     }
 
     // --- UTILS ---

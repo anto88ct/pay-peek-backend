@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
 import java.util.Map;
 
 @Data
@@ -16,4 +17,5 @@ public class PayslipResponseDto {
     private String azienda;
     private Map<String, String> regex;
     private Map<String, Object> extractedData;
+    private List<ErrorResponseDto> extractionErrors;
 }
