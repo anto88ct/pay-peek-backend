@@ -1,6 +1,6 @@
 package com.paypeek.backend.batch;
 
-import com.paypeek.backend.service.BatchNotificationService;
+import com.paypeek.backend.service.BatchReminderService;
 import org.springframework.batch.core.StepContribution;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
@@ -10,9 +10,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class PayslipTasklet implements Tasklet {
 
-    private final BatchNotificationService notificationService;
+    private final BatchReminderService notificationService;
 
-    public PayslipTasklet(BatchNotificationService notificationService) {
+    public PayslipTasklet(BatchReminderService notificationService) {
         this.notificationService = notificationService;
     }
 

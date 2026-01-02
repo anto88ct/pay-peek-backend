@@ -9,7 +9,7 @@ import org.springframework.data.mongodb.core.mapping.Field;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@Document(collection = "jobs")
+@Document(collection = "job")
 public class Job extends  BaseEntity {
 
     @Indexed(unique = true)

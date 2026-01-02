@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        /* Reset stili per client email */
+        body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f7f9; color: #334155; }
+        table { border-spacing: 0; width: 100%; }
+        td { padding: 0; }
+        img { border: 0; }
+
+        .wrapper { width: 100%; table-layout: fixed; background-color: #f4f7f9; padding-bottom: 40px; }
+        .main { background-color: #ffffff; max-width: 600px; margin: 0 auto; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+
+        /* Header */
+        .header { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 40px 20px; text-align: center; color: #ffffff; }
+        .header h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
+        .header p { margin: 8px 0 0; opacity: 0.8; font-size: 14px; }
+
+        /* Body */
+        .content { padding: 32px 24px; }
+        .greeting { font-size: 18px; font-weight: 600; margin-bottom: 16px; color: #1e293b; }
+
+        /* Alert Box */
+        .status-card { padding: 20px; border-radius: 8px; margin-bottom: 32px; text-align: center; }
+        .status-success { background-color: #ecfdf5; border: 1px solid #10b981; color: #065f46; }
+        .status-error { background-color: #fef2f2; border: 1px solid #ef4444; color: #991b1b; }
+        .status-icon { font-size: 32px; margin-bottom: 8px; display: block; }
+        .status-message { font-size: 16px; font-weight: 700; line-height: 1.4; }
+
+        /* History Sections */
+        .section-title { font-size: 14px; font-weight: 700; text-transform: uppercase; tracking: 1px; color: #64748b; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+
+        .list-item { padding: 12px; border-radius: 6px; margin-bottom: 8px; font-size: 14px; display: flex; align-items: center; }
+        .item-found { background-color: #f8fafc; border-left: 4px solid #10b981; }
+        .item-missing { background-color: #f8fafc; border-left: 4px solid #ef4444; }
+
+        .badge { font-size: 12px; padding: 2px 8px; border-radius: 12px; font-weight: 600; float: right; }
+        .badge-ok { background-color: #d1fae5; color: #065f46; }
+        .badge-no { background-color: #fee2e2; color: #991b1b; }
+
+        /* Button */
+        .cta-wrapper { text-align: center; margin-top: 32px; }
+        .button { background-color: #2563eb; color: #ffffff; padding: 14px 28px; text-decoration: none; font-weight: 600; border-radius: 6px; display: inline-block; transition: background-color 0.3s; }
+
+        /* Footer */
+        .footer { text-align: center; padding: 24px; font-size: 12px; color: #94a3b8; line-height: 1.5; }
+    </style>
+</head>
+<body>
+<div class="wrapper">
+    <div class="main">
+        <div class="header">
+            <h1>PayPeek</h1>
+            <p>Riepilogo Mensile Documenti</p>
+        </div>
+
+        <div class="content">
+            <div class="greeting">Ciao [(${fullName})],</div>
+            <p style="color: #64748b; font-size: 15px;">Ecco lo stato dell'ultimo documento atteso e il riepilogo del tuo storico:</p>
+            <div th:if="${not #lists.isEmpty(missingFiles)}">
+                <div class="section-title">Documenti da recuperare</div>
+                <div th:each="file : ${missingFiles}" class="list-item item-missing">
+                    <span style="margin-right: 10px;">❌</span>
+                    <span th:text="${file}">Mese Anno</span>
+                    <span class="badge badge-no">MANCANTE</span>
+                </div>
+            </div>
+
+            <div th:if="${not #lists.isEmpty(foundFiles)}" style="margin-top: 24px;">
+                <div class="section-title">Documenti caricati</div>
+                <div th:each="file : ${foundFiles}" class="list-item item-found">
+                    <span style="margin-right: 10px;">✔️</span>
+                    <span th:text="${file}">Mese Anno</span>
+                    <span class="badge badge-ok">OK</span>
+                </div>
+            </div>
+
+            <div class="cta-wrapper">
+                <a href="https://app.paypeek.it/dashboard"
+                   class="button"
+                   style="color: #ffffff !important; text-decoration: none;">
+                    Vai alla tua Area Riservata
+                </a>
+            </div>
+        </div>
+
+        <div class="footer">
+            Hai ricevuto questa email perché hai attivato le notifiche su <strong>PayPeek</strong>.<br>
+            &copy; 2026 PayPeek Inc. &bull; <a href="#" style="color: #2563eb; text-decoration: none;">Gestisci notifiche</a>
+        </div>
+    </div>
+</div>
+</body>
+</html>

@@ -42,4 +42,5 @@ public class User extends BaseEntity {
     private boolean emailNotifications;
     private String resetToken;
     private Instant resetTokenExpiry;
+    private Integer notificationStartYear;
 }

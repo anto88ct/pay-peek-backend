@@ -10,6 +10,8 @@ import org.springframework.stereotype.Service;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 
+import java.nio.charset.StandardCharsets;
+
 @Service
 @RequiredArgsConstructor
 public class EmailService {
@@ -41,30 +43,39 @@ public class EmailService {
         }
     }
 
-    public void sendReminder(UserReminderDto dto) throws MessagingException {
-        MimeMessage message = mailSender.createMimeMessage();
-        MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+    public void sendReminder(UserReminderDto dto) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
 
-        helper.setTo(dto.getEmail());
-        helper.setSubject("Riepilogo Documenti: " + dto.getTargetMonthName() + " " + dto.getTargetYear());
+            // Configurazione helper per email HTML
+            MimeMessageHelper helper = new MimeMessageHelper(message,
+                    MimeMessageHelper.MULTIPART_MODE_MIXED_RELATED,
+                    StandardCharsets.UTF_8.name());
 
-        // Costruzione del testo (Puoi usare un template HTML se preferisci)
-        StringBuilder body = new StringBuilder();
-        body.append("<h1>Ciao ").append(dto.getFullName()).append("</h1>");
-        body.append("<p>").append(dto.getFrontendMessage()).append("</p>");
+            // 1. Prepariamo i dati per il template HTML
+            Context context = new Context();
+            context.setVariable("fullName", dto.getFullName());
+            context.setVariable("targetMonthName", dto.getTargetMonthName());
+            context.setVariable("targetYear", dto.getTargetYear());
+            context.setVariable("foundFiles", dto.getFoundFiles());     // Lista storica
+            context.setVariable("missingFiles", dto.getMissingFiles()); // Lista storica
+            context.setVariable("frontendMessage", dto.getFrontendMessage());
+            context.setVariable("isComplete", dto.isComplete());
 
-        if (!dto.getFoundFiles().isEmpty()) {
-            body.append("<p><b>File caricati:</b> ").append(String.join(", ", dto.getFoundFiles())).append("</p>");
+            // 2. Elaborazione del file src/main/resources/templates/reminder.html
+            String htmlContent = templateEngine.process("reminder", context);
+
+            // 3. Configurazione parametri email
+            helper.setTo(dto.getEmail());
+            helper.setSubject("Riepilogo Documenti PayPeek - " + dto.getTargetMonthName() + " " + dto.getTargetYear());
+            helper.setText(htmlContent, true); // true indica che il contenuto è HTML
+            helper.setFrom("noreply@paypeek.com");
+
+            mailSender.send(message);
+
+        } catch (MessagingException e) {
+            // Logghiamo l'errore per il batch
+            throw new RuntimeException("Errore durante l'invio dell'email a " + dto.getEmail(), e);
         }
-
-        if (!dto.isComplete()) {
-            body.append("<p style='color:red;'><b>Documenti mancanti:</b> ")
-                    .append(String.join(", ", dto.getMissingFiles())).append("</p>");
-            body.append("<p>Ti preghiamo di caricarli al più presto sul portale.</p>");
-        }
-
-        helper.setText(body.toString(), true); // 'true' abilita l'HTML
-
-        mailSender.send(message);
     }
 }

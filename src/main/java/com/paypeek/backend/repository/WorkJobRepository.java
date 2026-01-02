@@ -6,7 +6,7 @@ import org.springframework.stereotype.Repository;
 import java.util.Optional;
 
 @Repository
-public interface JobRepository extends MongoRepository<Job, String> {
+public interface WorkJobRepository extends MongoRepository<Job, String> {
 
     Optional<Job> findByDescrizione(String descrizione);
 

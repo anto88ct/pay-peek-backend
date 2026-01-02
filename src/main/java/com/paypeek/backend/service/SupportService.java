@@ -7,7 +7,7 @@ import com.paypeek.backend.dto.NationalityDto;
 import com.paypeek.backend.dto.mapper.JobMapper;
 import com.paypeek.backend.dto.mapper.CityMapper;
 import com.paypeek.backend.dto.mapper.NationalityMapper;
-import com.paypeek.backend.repository.JobRepository;
+import com.paypeek.backend.repository.WorkJobRepository;
 import com.paypeek.backend.repository.CityRepository;
 import com.paypeek.backend.repository.NationalityRepository;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class SupportService {
 
-    private final JobRepository jobRepository;
+    private final WorkJobRepository jobRepository;
     private final CityRepository cityRepository;
     private final NationalityRepository nationalityRepository;
     private final JobMapper jobMapper;

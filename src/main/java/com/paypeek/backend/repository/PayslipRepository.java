@@ -12,7 +12,6 @@ public interface PayslipRepository extends MongoRepository<Payslip, String> {
     List<Payslip> findByTemplateId(String templateId);
     List<Payslip> findByUserIdOrderByCreatedAtDesc(String userId);
 
-    // Cerchiamo nei campi annidati della Map extractedData
-    @Query("{ 'userId': ?0, 'extractedData.periodo.mese': ?1, 'extractedData.periodo.anno': ?2 }")
-    List<Payslip> findByUserAndPeriod(String userId, String mese, String anno);
+    @Query("{ 'userId': ?0, 'extractedData.periodo.anno': ?1 }")
+    List<Payslip> findByUserIdAndYear(String userId, String year);
 }
